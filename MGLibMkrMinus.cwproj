@@ -1,0 +1,54 @@
+﻿<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{B49A1FC7-27F6-43B0-BC60-0062F327E8D6}</ProjectGuid>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">Win32</Platform>
+    <OutputType>WinExe</OutputType>
+    <RootNamespace>MGLibMkrMinus</RootNamespace>
+    <AssemblyName>MGLibMkrMinus</AssemblyName>
+    <OutputName>MGLibMkrMinus</OutputName>
+    <stack_size>16384</stack_size>
+    <CopyCore>True</CopyCore>
+    <StartArguments>Ignore=c:\windows\system32\version.dll</StartArguments>
+    <Model>Dll</Model>
+    <ApplicationIcon>LIBRARY.ICO</ApplicationIcon>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
+    <DebugSymbols>True</DebugSymbols>
+    <DebugType>Full</DebugType>
+    <vid>full</vid>
+    <check_stack>True</check_stack>
+    <check_index>True</check_index>
+    <warnings>on</warnings>
+    <GenerateMap>True</GenerateMap>
+    <line_numbers>True</line_numbers>
+    <StartAction>Project</StartAction>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
+    <DebugSymbols>False</DebugSymbols>
+    <DebugType>None</DebugType>
+    <vid>off</vid>
+    <check_stack>False</check_stack>
+    <check_index>False</check_index>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="MGLibMkrMinus.clw" />
+  </ItemGroup>
+  <ItemGroup>
+    <Library Include="BINOCULR.ICO" />
+    <Library Include="Blank.ico" />
+    <Library Include="clear.ico" />
+    <Library Include="CLOSED.ICO" />
+    <Library Include="Copy.ico" />
+    <Library Include="CS_SRCH.ICO" />
+    <Library Include="DelLine.ico" />
+    <Library Include="EXIT.ICO" />
+    <Library Include="found.ico" />
+    <Library Include="LibMakerMinus.manifest" />
+    <Library Include="LIBRARY.ICO" />
+    <Library Include="OPENED.ICO" />
+    <FileDriver Include="ASCII" />
+    <FileDriver Include="DOS" />
+  </ItemGroup>
+  <Import Project="$(ClarionBinPath)\SoftVelocity.Build.Clarion.targets" />
+</Project>
