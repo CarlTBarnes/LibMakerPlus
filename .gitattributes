@@ -6,31 +6,43 @@
 # Explicitly declare text files you want to always be normalized and converted
 # to native line endings on checkout.
 *.clw text
+*.equ text
 *.inc text
 *.int text
 *.cwproj text
 *.pr text
+*.red text
 *.sln text
-*.RED text
+*.trn text
 
 # Declare files that will always have CRLF line endings on checkout.
 *.sln text eol=crlf
 
 # Denote all files that are truly binary and should not be modified.
-*.png binary
-*.jpg binary
-*.gif binary
-*.bmp binary
-*.ico binary
-*.dct binary
 *.app binary
+*.bmp binary
+*.chm binary
+*.dct binary
+*.dll binary
+*.exe binary
+*.gif binary
+*.hlp binary
+*.ico binary
+*.jpg binary
+*.lib binary
+*.png binary
+*.zip binary
 *.docx binary
 *.pdf binary
 
-# Force Linguist support for Clarion inc files
-*.inc  linguist-language=Clarion
-*.clw  linguist-language=Clarion
-*.int  linguist-language=Clarion
-*.equ  linguist-language=Clarion
-
-# not sure what to say for  .tpl, .tpw, .txa, .txd, .red, .pr, ,prj, .cwproj, .sln
+# Declare languuage association
+*.clw linguist-language=Clarion
+*.equ linguist-language=Clarion
+*.inc linguist-language=Clarion
+*.int linguist-language=Clarion
+*.tpl linguist-language=Clarion
+*.tpw linguist-language=Clarion
+*.txa linguist-language=Clarion
+*.txd linguist-language=Clarion
+*.apv linguist-language=Clarion
+*.dcv linguist-language=Clarion
