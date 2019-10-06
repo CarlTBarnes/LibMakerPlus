@@ -1,5 +1,5 @@
      PROGRAM
-
+!Carl FYI: This is the MG LibMaker I started with. Only change is AB256.BMP changed to AB.JOG
 !Updated 2014-Jan-14 By Mark Goldberg 
 !  - Added Ability to Generate Classes (no parameters )
 !  - Refactored some of the code.
@@ -802,7 +802,7 @@ InfoWindow           PROCEDURE
 infowin WINDOW('About LibMaker'),AT(,,234,124),FONT('MS Sans Serif',8,,FONT:regular),PALETTE(256),SYSTEM, |
          GRAY
        PANEL,AT(6,6,74,86),USE(?Panel1),BEVEL(5)
-       IMAGE('AB256.BMP'),AT(9,9),USE(?Image1)
+       IMAGE('AB.jpg'),AT(9,9),USE(?Image1)
        GROUP,AT(85,6,139,86),USE(?Group),COLOR(COLOR:Black)
          STRING('LibMaker'),AT(87,9,135,16),USE(?String1),TRN,CENTER,FONT('Arial',14,,FONT:bold)
          BOX,AT(85,6,139,86),USE(?Box1),COLOR(COLOR:Black),FILL(COLOR:BTNSHADOW),LINEWIDTH(2)

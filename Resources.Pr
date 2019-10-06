@@ -1,6 +1,6 @@
 -- BMP--
-#pragma link("AB.BMP")
-#pragma link("AB256.BMP")
+-- #pragma link("AB.BMP")
+-- #pragma link("AB256.BMP")
 
 -- ICO --
 
