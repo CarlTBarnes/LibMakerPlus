@@ -11,8 +11,12 @@ _bak_/
 
 *.cache
 Cla*.dll
+*.exe
 
 # Other Files
 *.bak
 *.log
 *.ini
+*.exe
+*.lnk
+
