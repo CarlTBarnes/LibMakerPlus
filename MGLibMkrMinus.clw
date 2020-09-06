@@ -1,10 +1,22 @@
-     PROGRAM
-![ ] other CB LibMkr features?
-![ ] Way to take filtered list and delete from ALL ?
-![ ] Expand / Contract all
-![x ] easy way to load all Win32.LIB files
+     PROGRAM 
+     
+ReleaseInfoString EQUATE('2020.9.6 by Carl Barnes')     !Appears on Info/About Window 
+
+![ ] Add a column with Export Forward info e.g. ImageHlp.DLL has Exports that forward to  DebugHlp.DLL. Probably do NOT want some forwards.
 ![ ] WinSxS Finder/Picker Window. Enter File Name. Scan subfolders named X86. Needed for ComCtrl v6. Use CWA Directory code gen
 !Region Recent Changes
+!Updated 2020-September By Carl Barnes
+! - Copy button on toolbar to put list of symbols on clipboard so do not have to write EXP. Can do Tagged, Untagged, Filtered, Etc.
+! - Search window results new Right-click Popup(Copy | Delete). CtrlC copies symbol name.
+! - Exports Rt Click Popup() first line has "Symbol in Module" in bold so can tell in a long list the Module i.e. [31763(700)]Symbol "FilteredQ.symbol" 
+! - Filtered List shows the Module in a column
+! - Info / About window shows EXE Path. Moved Info ? button to far right. Arnor's Icetips email.
+! - New ReRun button runs another instance of Libmaker
+! - New SelectExportQ() replaces Select(?List1,x) so first Expands Tree level 1 then selects symbol line. Now select row when collapsed works and Vscroll shows. Prev if contracted did not work well
+! - Tag Popup menu offers Tag Duplicates. Not typically needed, well there are a lot more Export Forwards
+! - SkipAddExportQ() that reports Duplicates and Problem Symbol names now offers a "Tag All" so can see in List
+! - DB() to OutputDebugString 
+!
 !Updated 2019-September By Carl Barnes
 ! - Right-Click on Add or subtract does POPUP of System32, Clarion 
 ! - Commandline "loadclawin32" will load the Clarion Win32.LIB DLLs e.g. Kernel32 User32 GDI32
@@ -147,6 +159,7 @@
         GenerateClasses()
         SelectQBE
         SortExportQ(BYTE ForcedOrder=0)                 !CB Put all sorting here
+        SelectExportQ(LONG ListFEQ, ExportQ ExportQType, LONG QPointer)  !Expand Tree before select symbol        
         ExportQ_to_FilterQ()
         ExportQCompress   (ExportQ ExportQType)         !CB Remove Empty Level 1
         LongestSymbol     (ExportQ ExportQType),LONG    !in ExportQ Level 2
@@ -157,6 +170,7 @@
         SkipAddExportQ(),BOOL
         SetSearchFlagInExportQ(BYTE NewSearchFlag, BYTE SyncFoundCount, BYTE PutExportQ)  !CB
         WriteTextEXP()
+        CopyList2Clip()
         SetCueBanner(LONG TextSingleFEQ, STRING CueBannerText, BOOL OnFocusShows)
         FileNamePopupClarion(*STRING OutFileName),BOOL
         FileNamePopupSystem32(*STRING OutFileName),BOOL
@@ -166,11 +180,13 @@
         ExistsFile(STRING FileNm),BOOL     !Is it a File and not Folder?
         ExistsFolder(STRING FolderNm),BOOL !Is it a Folder and not File?        
         WinSxSPicker(*STRING OutFileName),BOOL
+        DB(STRING DebugMsg)
         MODULE('Win32')
             GetWindowsDirectory(*CString lpBuffer, LONG uSize),UNSIGNED,PASCAL,RAW,PROC,DLL(1),NAME('GetWindowsDirectoryA')
-            GetSystemDirectory(*CSTRING lpBuffer, LONG uSize),LONG,PASCAL,RAW,NAME('GetSystemDirectoryA'),DLL(1)
+            GetSystemDirectory(*CSTRING lpBuffer, LONG uSize),LONG,PASCAL,RAW,DLL(1),NAME('GetSystemDirectoryA')
             SendMessageW(SIGNED hWnd, UNSIGNED Msg, UNSIGNED wParam, SIGNED lParam ),PASCAL,DLL(1),RAW,SIGNED,PROC!,NAME('SendMessageW')
             GetFileAttributes(*CString szFileName),LONG,PASCAL,RAW,DLL(1),NAME('GetFileAttributesA')
+            OutputDebugString(*cstring Msg),PASCAL,RAW,DLL(1),NAME('OutputDebugStringA')
         END
      END
 
@@ -197,20 +213,26 @@ FoundCount   Long !MG Added 12/7/01
 IsSubtracting byte
 WriteFiltered byte  !CB - WTF is Filtered for if it is not to Save?
         END !glo
+AddExportQGrp   GROUP,PRE(AddEx)    !CB 09/06/20 moved out of SkipAddExportQ so can be cleared
+OmtIncAllDllX BYTE                  !Symbols that should be excluded  1=Omit All  2=Include All  e.g. do NOT import DllGetVersion
+TagIncAllDllX BYTE                           !1=Tag them (when include all)
+OmtIncAllDups BYTE                  !Symbols that Duplicate           1=Omit All  2=Include All
+TagIncAllDups BYTE                           !1=Tag them (when include all)
+                END                 
 WindowsDir CSTRING(256)
 System32  CSTRING(256)        
 NDX       LONG
 OrgOrder  LONG          !CB Index separate from Q to assure cannot get messed up
 ExportQ   QUEUE,PRE(EXQ)
 symbol      STRING(128)  !1
-Icon        LONG         !2
-TreeLevel   SHORT        !3
-StyleNo     LONG         !4
+Icon        LONG         !2   3=Tagged Icon  0=Untagged No Icon  1=Lib Opened 2=Lib Closed 
+TreeLevel   SHORT        !3   1=Lib/Dll  2=Symbol
+StyleNo     LONG         !4   See ListStyle:*  3=:Found Tagged, 0=:None UnTag, 1=:Opened 2=:Closed
 Ordinal     LONG         !5
 Module      STRING(260)  !6   !Modified by MJS to allow for longer file names
 OrgOrder    LONG         !7   !AB Unique ID of Import
-SearchFlag  Byte         !8   !MG (enum field, see SearchFlag::* below)
-SymbolLwr   STRING(128)  !9   !CB Lower Case for Sort and Find
+SearchFlag  Byte         !8   !MG See SearchFlag::* below  1=::Found (Tagged)   0=::Default (Not Tagged)
+SymbolLwr   STRING(128)  !9   !CB Lower Case for Sort and Find  (but Windows Symbol names are case sensitive)
           END
 FilteredQ QUEUE(ExportQ),PRE(FLTQ)
           END
@@ -245,9 +267,11 @@ window WINDOW('MGLibMkr Plus by Carl Barnes'),AT(,,288,257),CENTER,GRAY,IMM,SYST
             BUTTON('&T'),AT(53,2,14,14),USE(?TagPopup),DISABLE,ICON('found.ico'),TIP('Tag Options: Tag All, Untag All, D' & |
                     'elete Tagged... (ALT+T)'),FLAT,LEFT
             BUTTON('&S'),AT(70,2,14,14),USE(?SaveAs),DISABLE,ICON(ICON:Save),TIP('Save .LIB As... (ALT+S)'),FLAT,LEFT
-            BUTTON,AT(87,2,15,14),USE(?Clear),DISABLE,ICON('clear.ico'),TIP('Empty the listbox'),FLAT,LEFT
-            BUTTON,AT(105,2,14,14),USE(?Exit),STD(STD:Close),ICON('Exit.ico'),TIP('Exit the program'),FLAT,LEFT
-            BUTTON,AT(122,2,14,14),USE(?Info),ICON(ICON:Help),TIP('Info'),FLAT,LEFT
+            BUTTON,AT(87,2,14,14),USE(?CopyListBtn),DISABLE,ICON(ICON:Copy),TIP('Copy Symbol names from All or Filtered List'),FLAT,LEFT,SKIP                    
+            BUTTON,AT(105,2,15,14),USE(?Clear),DISABLE,ICON('clear.ico'),TIP('Empty the listbox'),FLAT,LEFT
+            BUTTON,AT(122,2,14,14),USE(?Exit),STD(STD:Close),ICON('Exit.ico'),TIP('Exit the program'),FLAT,LEFT
+            BUTTON,AT(245,2,14,14),USE(?ReRun),ICON(ICON:VcrPlay),TIP('Run Another Instance of LibMaker'),FLAT,LEFT,SKIP
+            BUTTON,AT(267,2,14,14),USE(?Info),ICON(ICON:Help),TIP('Info'),FLAT,LEFT,SKIP
             CHECK('Write Filtered'),AT(145,2),USE(glo.WriteFiltered),TIP('Saving LIBs, EXPs, MAPs, Classes, etc<13,10>us' & |
                     'e the Filtered list if any are tagged.')
             BUTTON('Write E&XP'),AT(145,15,58,10),USE(?MakeEXP),DISABLE,TIP('Write EXP file for Exporting Symbols from L' & |
@@ -278,9 +302,9 @@ window WINDOW('MGLibMkr Plus by Carl Barnes'),AT(,,288,257),CENTER,GRAY,IMM,SYST
                          ALRT(InsertKey), ALRT(CtrlC)
             END
             TAB(' Filtered '),USE(?TAB:Filtered),ICON('found.ico')
-                LIST,AT(8,23,272,187),USE(?Filtered),DISABLE,VSCROLL,COLUMN,VCR,FROM(FilteredQ),FORMAT('143L(2)|MIYT~Mod' & |
-                        'ule and function~30R(3)~Ordinal~@N_5B@'),ALRT(MouseLeft2), ALRT(DeleteKey), ALRT(CtrlC), |
-                         ALRT(EnterKey)
+                LIST,AT(8,23,272,187),USE(?Filtered),DISABLE,VSCROLL,COLUMN,VCR,FROM(FilteredQ), |
+                        FORMAT('160L(2)|MIYT~Symbol~@s255@70L(2)|M~Module~@s255@#6#30R(3)~Ordinal~@N' & |
+                        '_5B@#2#'),ALRT(MouseLeft2), ALRT(DeleteKey), ALRT(CtrlC), ALRT(EnterKey)
             END
             TAB('D'),USE(?TAB:DebugWrite),HIDE
                 LIST,AT(8,23),USE(?ListWrite),FULL,VSCROLL,TIP('WriteExpQ is Filtered with Tree so can use in place o' & |
@@ -416,8 +440,19 @@ L1      LONG
   WHILE FileZ
   DISPOSE(FileZ)   
    
-LoadWin32LibDllsRtn ROUTINE
-    DO Accepted:Clear
+LoadWin32LibDllsRtn ROUTINE 
+    IF MESSAGE('This will load the 13 Windows System32 DLLs referenced in Clarion Win32.LIB.'&|
+         '|(Kernel User GDI Comctl ComDlg Winnm MPR AdvApi Ole OleAut OleDlg Shell)'&|
+         '||You can use this to subtract the shipping Win32.Lib to see what''s missing.'&|
+         '|The Win32.lib shipped is typically limited to Windows XP and prior.'&|
+         '||This load will contain a lot of duplicates because Windows has added many '&|
+         '|Export forwards. You should omit them, or tag them and '&|
+         'review then delete.', |
+         'Create Win32.Lib from Windows DLLs', ICON:Question, '&Load DLLs|&Cancel', 2) = 2 THEN EXIT. 
+    DO Accepted:Clear 
+    CLEAR(AddExportQGrp)   !Ask about Dups 
+    AddEx:OmtIncAllDllX=1  !1=Omit All Problems e.g. DllGetVersion
+
     FileName='Kernel32.DLL' ; DO LoadOneWin32LibRtn
     FileName='User32.DLL'   ; DO LoadOneWin32LibRtn
     FileName='GDI32.DLL'    ; DO LoadOneWin32LibRtn
@@ -433,7 +468,7 @@ LoadWin32LibDllsRtn ROUTINE
     FileName='Shell32.DLL'  ; DO LoadOneWin32LibRtn
 !Now in GDI32    FileName=System32 &'\LPK.DLL' ; ReadExecutable()       
     DO CollapseAll
-    0{PROP:Text}='Loaded Win32.LIB DLLs'
+    0{PROP:Text}='Loaded DLLs to Create Win32.LIB'
 LoadOneWin32LibRtn ROUTINE
     FileName=System32 &'\' & FileName
     0{PROP:Text}='Load ' & FileName 
@@ -455,7 +490,9 @@ AcceptLoop           ROUTINE
        OF ?FindButton      ; DO Accepted:FindButton
        OF ?MakeEXP         ; DO Accepted:MakeEXP
        OF ?GenerateCode    ; DO Accepted:GenerateCode
+       OF ?ReRun           ; RUN(Command('0'))
        OF ?Info            ; InfoWindow()
+       OF ?CopyListBtn     ; CopyList2Clip()
        OF ?Clear           ; DO Accepted:Clear
        OF ?AddFile         ; DO Accepted:AddFile
        OF ?SubtractFile    ; DO Accepted:SubtractFile
@@ -477,7 +514,7 @@ AcceptLoop           ROUTINE
      
      IF MGResizeClass.Perform_Resize()
         ?List1   {proplist:Width,1} = ?List1   {prop:Width} - qOrdColWidth
-		  ?Filtered{proplist:Width,1} = ?Filtered{prop:Width} - qOrdColWidth
+		?Filtered{proplist:Width,1} = ?Filtered{prop:Width} - qOrdColWidth - ?Filtered{proplist:Width,2}  
      END
      
      DO EnableDisable
@@ -492,18 +529,23 @@ Set_DisplayCount     ROUTINE
   !  show only level 2 records
 !------------------------------------------------------
 EnableDisable       ROUTINE
-  ?List1             {PROP:Disable} = CHOOSE( RECORDS(ExportQ) = 0 )
-  ?Filtered          {PROP:Disable} = ?List1{PROP:Disable}
-  ?SubtractFile      {PROP:Disable} = ?List1{PROP:Disable}
-  ?SaveAs            {PROP:Disable} = ?List1{PROP:Disable}
-  ?Clear             {PROP:Disable} = ?List1{PROP:Disable}
-  ?MakeEXP           {PROP:Disable} = ?List1{PROP:Disable}
-  ?GenerateCode      {PROP:Disable} = ?List1{PROP:Disable}
-  ?glo:SortOrder     {PROP:Disable} = ?List1{PROP:Disable}
-  ?FindButton        {PROP:Disable} = ?List1{PROP:Disable}  
-  ?LocateGrp         {PROP:Hide} = ?List1{PROP:Disable}  
-  ?TagPopup          {PROP:Disable} = ?List1{PROP:Disable}  
-
+    DATA
+D1 STRING(1)  !09/06/20 CB replace =?List1{PROP:Disable} repeated below
+    CODE
+  D1=CHOOSE(RECORDS(ExportQ)=0,'1','')
+  ?List1        {PROP:Disable}=D1
+  ?Filtered     {PROP:Disable}=D1
+  ?SubtractFile {PROP:Disable}=D1
+  ?SaveAs       {PROP:Disable}=D1
+  ?Clear        {PROP:Disable}=D1
+  ?CopyListBtn  {PROP:Disable}=D1
+  ?MakeEXP      {PROP:Disable}=D1
+  ?GenerateCode {PROP:Disable}=D1
+  ?Glo:SortOrder{PROP:Disable}=D1
+  ?FindButton   {PROP:Disable}=D1 
+  ?TagPopup     {PROP:Disable}=D1 
+  ?LocateGrp    {PROP:Hide}   =D1
+  EXIT
 !Region Accepted ROUTINEs
 Accepted:SortOrder ROUTINE
    GET(ExportQ,CHOICE(?List1))    !CB preserve selected   
@@ -551,6 +593,7 @@ Accepted:GenerateCode  ROUTINE
 Accepted:Clear ROUTINE       
    FREE(ExportQ); FREE(FilteredQ)
    OrgOrder = 0 !CB
+   CLEAR(AddExportQGrp)   !CB Ask about Dups 
    Window{PROP:Text} = 'LibMaker'
    DISPLAY
 
@@ -635,8 +678,16 @@ NoTags  PSTRING(3)
                 NoTags & 'Toggle All' & |      !#3
                 '|-' & |
                 NoTags & 'Delete Tagged' & |   !#4
-                NoTags & 'Delete UnTagged' )   !#5
-    IF ~TagOp THEN EXIT.
+                NoTags & 'Delete UnTagged' & | !#5
+                '|-' & |
+                '|Tag Duplicate Names')        !#6 
+    CASE TagOp 
+    OF 0 ; EXIT
+    OF 6
+       DO Accepted:TagDuplcates
+       DISPLAY
+       EXIT
+    END 
     SELECT(?TAB:All)
     LOOP QNdx=RECORDS(ExportQ) TO 1 BY -1
          GET(ExportQ,QNdx) ; IF ExportQ.TreeLevel <> 2 THEN CYCLE.
@@ -654,6 +705,33 @@ NoTags  PSTRING(3)
          END    
     END   
     DISPLAY
+    EXIT
+Accepted:TagDuplcates ROUTINE !09/2/20 Noticed in Create Win32.lib had 59 dups
+    DATA
+DupQ   QUEUE(ExportQ),PRE(DupQ)
+       END    
+CntDp  LONG
+QnX    LONG
+TagAll BOOL 
+    CODE
+    CASE Message('Tag All Duplicates or Tag 1 of 2?','Tag Dups',,'Tag All|1 of 2|Cancel')
+    OF 1 ; TagAll=1
+    OF 3 ; EXIT
+    END 
+    CopyQueue(ExportQ,DupQ)
+    loop QNx=RECORDS(DupQ) TO 1 BY -1
+         GET(DupQ,QNx)
+         DELETE(DupQ)   
+         IF DupQ:TreeLevel<>2 THEN CYCLE. 
+         GET(DupQ,DupQ:Symbol,DupQ:TreeLevel)  !Names are Case Sensitive so not DupQ:SymbolLwr
+         IF ERRORCODE() THEN CYCLE. 
+         CntDp += 1
+         IF TagAll THEN 
+            GET(ExportQ,POINTER(DupQ)) ; SetSearchFlagInExportQ(SearchFlag::Found,1,1)  
+         END
+         GET(ExportQ,QNx)              ; SetSearchFlagInExportQ(SearchFlag::Found,1,1)  
+    end
+    Message('Found ' & CntDp & ' duplcate symbol names.')
     EXIT
 Accepted:LocateNext ROUTINE
     DATA
@@ -673,8 +751,8 @@ Locate   PSTRING(64)
         QNdx += NextPrev
         GET(ExportQ, QNdx)
         IF ERRORCODE() THEN BREAK.
-        IF INSTRING(Locate,ExportQ.SymbolLwr,1,1) > 0 THEN
-           ?List1{PROP:Selected}=QNdx  ! SELECT(?List1, QNdx)
+        IF INSTRING(Locate,ExportQ.SymbolLwr,1,1) > 0 THEN 
+           SelectExportQ(?List1, ExportQ , QNdx)  !Expand Tree before select symbol  !?List1{PROP:Selected}=QNdx
            BREAK
         END
      END
@@ -717,7 +795,7 @@ GotFile BOOL
       IsADD=CHOOSE(F=?AddFile) !Some messy code here to have Popup reuse existing routines and procedures
       IF IsADD THEN FileNmRef &= FileName ELSE FileNmRef &= SubFileName.
       CASE POPUPunder(F,'Windows DLLs...|Windows System 32 folder|WinSxS folder (Side by Side)|-|Clarion Folder...' & |
-                      CHOOSE(~IsADD,'','|-|Load Clarion Win32.LIB DLLs'))
+                      CHOOSE(~IsADD,'','|-|Load 13 DLLs to Create Clarion Win32.LIB'))
       OF 1 ; IF ~FileNamePopupSystem32(FileNmRef) THEN EXIT. ; GotFile=1
       OF 2 ; Filename=System32 ; POST(EVENT:Accepted,F) ; EXIT
       OF 3 ; IF ~WinSxSPicker(FileNmRef) THEN EXIT. ;  GotFile=1 
@@ -767,10 +845,13 @@ GotFile BOOL
       IF ERRORCODE() THEN EXIT.
       CASE KeyCode()
       OF CtrlC ; SETCLIPBOARD(FilteredQ.Symbol)
-      OF MouseLeft2 OROF EnterKey                !CB Dbl click finds in Export Q
+      OF MouseLeft2 OROF EnterKey                !CB Dbl click finds in Export Q or Popup "? Locate on All Exports Tab"
          ExportQ.symbol = FilteredQ.symbol
          GET(ExportQ,ExportQ.symbol)
-         IF ~ERRORCODE() THEN SELECT(?List1,POINTER(ExportQ)).      
+         IF ~ERRORCODE() THEN 
+             SelectExportQ(?List1, ExportQ ,POINTER(ExportQ))   !Expands Tree
+             SELECT(?List1)
+         END 
       OF DeleteKey
          DELETE(FilteredQ) 
          ExportQ.symbol = FilteredQ.symbol
@@ -802,11 +883,12 @@ OnNewSelection ROUTINE !CB
       IF ERRORCODE() THEN EXIT.
       CASE KeyCode()
       OF MouseRight ; SETKEYCODE(0)
-         CASE POPUP('[' & PROP:Icon & '(~Found.ico)]UnTag / Remove from Filtered<9>Delete' &|
+         CASE POPUP('[31763(700)]Symbol "' & CLIP(FilteredQ.symbol) &'" in "'& CLIP(FilteredQ.Module) &'"|-|' & |   !Header 1-1=0
+                    '[' & PROP:Icon & '(~Found.ico)]UnTag / Remove from Filtered<9>Delete' &|
                     '|-|' & |
                     '[' & PROP:Icon & '(~Copy.ico)]Copy to Clipboard<9>Ctrl+C' & |
                     '|-|' & |
-                    '[' & PROP:Icon & '('&ICON:VCRlocate &')]Locate on Exports Tab<9>Enter')
+                    '[' & PROP:Icon & '('&ICON:VCRlocate &')]Locate on All Exports Tab<9>Enter') - 1
            OF 1 ; SETKEYCODE(DeleteKey) ; DO OnAlertKey 
            OF 2 ; SETCLIPBOARD(FilteredQ.Symbol) 
            OF 3 ; SETKEYCODE(EnterKey) ; DO OnAlertKey 
@@ -816,16 +898,18 @@ OnNewSelection ROUTINE !CB
 
 OnNewSelectionMouseRightList1 ROUTINE 
     DATA
-PN  BYTE,AUTO
+PN  SHORT,AUTO
 Lvl SHORT    
     CODE
     SETKEYCODE(0)
-    PN=POPUP('[' & PROP:Icon & '(~Found.ico)]Tag Toggle<9>Enter' &|
+    PN=POPUP('[31763(700)]Symbol "' & CLIP(ExportQ.symbol) &'" in "'& CLIP(ExportQ.Module) &'"|-|' & |  !Header 1-1=0
+             '[' & PROP:Icon & '(~Found.ico)]Tag Toggle<9>Enter' &|
              '|-|' & |
              '[' & PROP:Icon & '(~Copy.ico)]Copy to Clipboard<9>Ctrl+C' & |
              '|-|' & |
              '[' & PROP:Icon & '(~DelLine.ico)]Delete this item<9>Delete' & |
-             '|-|Expand All|Collapse All')
+             '|-|Expand All|Collapse All' ) - 1
+
     CASE PN                   
       OF 1 ; SETKEYCODE(EnterKey) ; DO OnAlertKey  ; EXIT
       OF 2 ; SETCLIPBOARD(ExportQ.Symbol)          ; EXIT
@@ -989,6 +1073,7 @@ j         LONG
       IF SkipAddExportQ() THEN CYCLE.  !CB
       OrgOrder += 1 ; ExportQ.orgorder = OrgOrder  !AB
       ADD(ExportQ)
+      IF ExportQ.SearchFlag THEN SetSearchFlagInExportQ(SearchFlag::Default,0,0).  !undo tag by SkipAddExport
    END
 
 !========================================================================================
@@ -1031,6 +1116,7 @@ r  LONG
      IF SkipAddExportQ() THEN CYCLE. !CB
      OrgOrder += 1 ; ExportQ.orgorder = OrgOrder  !AB     
      ADD(ExportQ)
+     IF ExportQ.SearchFlag THEN SetSearchFlagInExportQ(SearchFlag::Default,0,0).  !undo tag by SkipAddExport
    END
 
 ! Now pull apart the non-resident name table. First entry is the description, and is skipped
@@ -1050,6 +1136,7 @@ r  LONG
      IF SkipAddExportQ() THEN CYCLE. !CB
      OrgOrder += 1 ; ExportQ.orgorder = OrgOrder  !AB
      ADD(ExportQ)
+     IF ExportQ.SearchFlag THEN SetSearchFlagInExportQ(SearchFlag::Default,0,0).  !undo tag by SkipAddExport
    END
 
 !========================================================================================
@@ -1139,6 +1226,7 @@ ordinal    USHORT
              ExportQ.ordinal = 0
              OrgOrder += 1 ; ExportQ.orgorder = OrgOrder  !AB
              ExportQ.StyleNo = ListStyle:Opened
+             ExportQ.SearchFlag= SearchFlag::Default
              ADD(ExportQ)
              ExportQ.StyleNo = ListStyle:None
           END
@@ -1150,59 +1238,46 @@ ordinal    USHORT
           ExportQ.ordinal = ordinal
           IF SkipAddExportQ() THEN CYCLE.  !CB
           OrgOrder += 1 ; ExportQ.orgorder = OrgOrder  !AB
-          ADD(ExportQ)		  
+          ADD(ExportQ)
+          IF ExportQ.SearchFlag THEN SetSearchFlagInExportQ(SearchFlag::Default,0,0).  !undo tag by SkipAddExport
       END
    END
    CLOSE(LIBfile)
 
 !========================================================================================
-InfoWindow           PROCEDURE
-   !AB, significant change
-   !MG, changed color:Silver to color:BtnShadow
-   !    added My Name & E-mail
-   !    button1:
-   !       changed exit Icon to be consistent with rest of the program,
-   !       added ,DEFAULT
-   !       added ,Std(Std:Close)
-
-
-!Myconst     group
-!!BuildDate      long(Nov302001 + 4) !Syntax error: Expression must be constant
-!BuildDate       long(73392) !12/4/01
-!Version         String('2')
-!            end
-!       STRING('Build:'),AT(145,93),USE(?String14),FONT(,,COLOR:BTNSHADOW,)
-!       STRING(@D17),AT(163,93,41,10),USE(MyConst.BuildDate),FONT(,,COLOR:BTNSHADOW,)
-!       STRING('Ver'),AT(102,93),USE(?VerStr),FONT(,,COLOR:BTNSHADOW,)
-!       STRING(@s3),AT(116,93,,10),USE(MyConst.Version),FONT(,,COLOR:BTNSHADOW,)
-
-
-infowin WINDOW('About LibMaker'),AT(,,234,180),GRAY,SYSTEM,FONT('Segoe UI',9,,FONT:regular),PALETTE(256)
+InfoWindow PROCEDURE()
+ExeName0 STRING(260),AUTO 
+infowin WINDOW('About LibMaker'),AT(,,234,200),GRAY,SYSTEM,FONT('Segoe UI',9,,FONT:regular),PALETTE(256)
         PANEL,AT(6,6,74,86),USE(?Panel1),BEVEL(5)
         IMAGE('AB.JPG'),AT(14,14),USE(?Image1)
-        GROUP,AT(85,6,139,86),USE(?Group),COLOR(COLOR:Black)
+        GROUP,AT(85,6,139,86),USE(?Group),FONT(,,COLOR:CAPTIONTEXT),COLOR(COLOR:Black)
+            BOX,AT(85,6,139,86),USE(?Box1),COLOR(COLOR:Black),FILL(COLOR:INACTIVECAPTION),LINEWIDTH(2)
             STRING('LibMaker'),AT(87,9,135,16),USE(?String1),TRN,CENTER,FONT('Arial',14,,FONT:bold)
-            BOX,AT(85,6,139,86),USE(?Box1),COLOR(COLOR:Black),FILL(COLOR:BTNSHADOW),LINEWIDTH(2)
-            STRING('Modified:'),AT(97,30),USE(?String3),TRN,RIGHT
-            STRING('Arnór Baldvinsson'),AT(135,30),USE(?String4),TRN
-            STRING('Denmark'),AT(135,41),USE(?String6),TRN
-            STRING('E-mail:'),AT(99,57),USE(?String7),TRN,RIGHT
-            STRING('arnorbld@post3.tele.dk'),AT(135,57),USE(?String8),TRN
-            STRING('http://www.icetips.com'),AT(135,70,76,10),USE(?String10),TRN
+            STRING('Release:'),AT(89,31,35),USE(?ReleasePmt),TRN,RIGHT
+            STRING('yyyy.mm.dd by Release Info'),AT(132,31),USE(?ReleaseString),TRN
+            STRING('Creator:'),AT(89,50,35),USE(?String3),TRN,RIGHT
+            STRING('Arnor Baldvinsson'),AT(132,50),USE(?String4),TRN
+            STRING('E-mail:'),AT(89,63,35),USE(?String7),TRN,RIGHT
+            STRING('<<Arnor@IceTips.com>'),AT(132,63),USE(?String8),TRN
+            STRING('http://www.IceTips.com'),AT(132,76,76,10),USE(?String10),TRN
         END
         STRING('Modifications by:'),AT(4,102),USE(?String9)
-        STRING('Mark Goldberg, Mark Sarson & Carl Barnes'),AT(60,102),FULL,USE(?String11),FONT(,,,FONT:bold)
-        BUTTON('&Close'),AT(185,162,45,14),USE(?Button1),STD(STD:Close),ICON('Exit.ico'),DEFAULT,LEFT
+        STRING('Mark Goldberg, Mark Sarson & Carl Barnes'),AT(60,102),FULL,USE(?String11), |
+                FONT(,,,FONT:bold)
+        BUTTON('&Close'),AT(185,161,45,16),USE(?Button1),STD(STD:Close),ICON('Exit.ico'),DEFAULT,LEFT
         STRING('TIP:'),AT(12,115),USE(?TipStr1),FONT(,,,FONT:bold)
         PROMPT('Right-Click on Add / Subtract buttons and Lists for Popups'),AT(33,115),USE(?TipPmt1)
         STRING('TIP:'),AT(12,127),USE(?TipStr2),FONT(,,,FONT:bold)
-        PROMPT('You can drag a DLL from Explorer to  LibMaker'),AT(33,127),USE(?TipPmt2)
+        PROMPT('You can drag a DLL from Explorer and drop on LibMaker'),AT(33,127),USE(?TipPmt2)
         STRING('TIP:'),AT(12,140,13,10),USE(?TipStr3),FONT(,,,FONT:bold)
-        PROMPT('Command line arguments:<13,10>    READ="FileName"<13,10>    WRITE="FileName"<13,10>    /CLOSE'), |
-                AT(33,140,130,36),USE(?TipPmt3)
+        PROMPT('Command line arguments:<13,10>    READ="FileName"<13,10>    WRITE="FileName"<13,10> ' & |
+                '   /CLOSE'),AT(33,140,130,36),USE(?TipPmt3)
+        TEXT,AT(4,182,226,18),USE(ExeName0),TRN
     END
    CODE
+   ExeName0=COMMAND('0')
    OPEN(infowin)
+   ?ReleaseString{PROP:Text}=ReleaseInfoString
    ACCEPT 
    END
 !========================================================================================
@@ -1237,7 +1312,6 @@ Swindow WINDOW('Search Symbols'),AT(,,240,180),GRAY,IMM,SYSTEM,FONT('Segoe UI',9
                 FROM('Contains|#1|Starts With|#2|Ends With|#3|Wild *? Cards ?*|#4|Regular Expression|#5')
         CHECK('Case'),AT(118,20),USE(Lcl:CaseSenstive),SKIP,TIP('Case Sensitive')
         BUTTON('&Search'),AT(151,18,46,15),USE(?SearchButton),ICON('BINOCULR.ICO'),DEFAULT,LEFT
-        !BUTTON('&Search'),AT(160,18,37,15),USE(?SearchButton),DEFAULT
         BUTTON('&Cancel'),AT(201,18,36,15),USE(?CloseButton),STD(STD:Close)
         PANEL,AT(4,36,232,2),USE(?PANEL1),BEVEL(0,0,0600H)
         GROUP,AT(0,38,236,143),USE(?ResulsGrp),DISABLE
@@ -1248,7 +1322,7 @@ Swindow WINDOW('Search Symbols'),AT(,,240,180),GRAY,IMM,SYSTEM,FONT('Segoe UI',9
             BUTTON('&Delete'),AT(113,41,48,15),USE(?DeleteBtn),ICON('DelLine.ico'),TIP('Delete the f' & |
                     'ound symbols from the All List.'),LEFT
             LIST,AT(4,60,232,115),USE(?List:FindQ),VSCROLL,FROM(FindQ),FORMAT('143L(2)FIY~Symbols Fo' & |
-                    'und by Search~@s128@'),ALRT(DeleteKey)
+                    'und by Search~@s128@'),ALRT(DeleteKey),ALRT(CtrlC)
         END
         BUTTON('RgX'),AT(207,44,19,12),USE(?RegExBtn),TIP('Syntax of Clarion Match RegEx Operators')
     END
@@ -1285,13 +1359,25 @@ Pz LONG,DIM(4),STATIC
          BREAK
       of ?RegExBtn ; START(RegExHelper,,0{PROP:XPos},0{PROP:YPos},0{PROP:Width})
     end  !case Accepted 
-    case field()
-    of ?List:FindQ 
+    CASE FIELD()
+    OF ?List:FindQ 
        GET(FindQ,CHOICE(?List:FindQ))
-       IF EVENT()=EVENT:AlertKey AND KEYCODE()=DeleteKey THEN 
-          DELETE(FindQ) ; DO EnableRtn
+       CASE EVENT()
+       OF EVENT:AlertKey 
+          CASE KEYCODE()
+          OF CtrlC     ; SetClipboard(FindQ:Symbol)
+          OF DeleteKey ; DELETE(FindQ) ; DO EnableRtn
+          END
+       OF EVENT:NewSelection
+          IF KEYCODE()=MouseRight THEN 
+             SetKeyCode(0)
+             CASE POPUP('Copy Symbol Name<9>Ctrl+C|-|Delete Symbol<9>Delete')
+             OF 1 ; SetKeyCode(CtrlC)     ; POST(EVENT:AlertKey,?)
+             OF 2 ; SetKeyCode(DeleteKey) ; POST(EVENT:AlertKey,?)
+             END
+          END
        END
-    end
+    END
   END !Accept Loop
   MGResizeCls.Close_Class()
   PutIni('Search','For2'   ,Lcl:SearchString,qINI_File)
@@ -1444,6 +1530,28 @@ LastTreeLevel SHORT(0)
    RETURN
 !EndRegion - Tmp Region
 
+!========================================================================================
+SelectExportQ  PROCEDURE(LONG ListFEQ, ExportQ ExpQ2Do, LONG QPointer)  !Expand Tree before select symbol
+!Selecting a line in a Collapsed Tree and a Scroll seems to be trouble 
+QX LONG,AUTO
+    CODE
+    LOOP QX=QPointer TO 1 BY -1
+        GET(ExpQ2Do,QX)     
+        CASE ExpQ2Do.TreeLevel
+        OF 1  ; BREAK 
+        OF -1   
+               ExportQ.TreeLevel = 1
+               ExportQ.Icon = 3 - ExportQ.Icon
+               ExportQ.StyleNo = CHOOSE(ExportQ.Icon,ListStyle:Opened,ListStyle:Closed)
+               PUT(ExportQ)
+               ListFEQ{PROP:Selected}=QX
+               DISPLAY      !Hope to Get Scrollbar?
+               BREAK
+        END
+    END
+    ListFEQ{PROP:Selected}=QPointer
+    RETURN 
+    
 !========================================================================================
 GenerateMap      PROCEDURE(BYTE argRonsFormat) !writes out all info in the export Q to an ASCII file, to aid in building CW Map statements
   !Created 10/6/98 by Monolith Custom Computing, Inc.  
@@ -1894,12 +2002,16 @@ qnx     long,auto
 SkipAddExportQ  PROCEDURE()!,BOOL
 SymName     PSTRING(130)
 SkipIt      BOOL
+UniqueSym   BOOL
 SaveExportQ STRING(SIZE(ExportQ)),AUTO
-OmtIncAllDups BYTE,STATIC
-OmtIncAllDllX BYTE,STATIC
+SaveModule  LIKE(ExportQ.module),AUTO
+!OmtIncAllDllX BYTE,STATIC       !CB 09/06/20 moved to Global with PRE(AddEx)
+!TagIncAllDllX BYTE,STATIC
+!OmtIncAllDups BYTE,STATIC
+!TagIncAllDups BYTE,STATIC
     CODE 
     IF GLO:IsSubtracting THEN RETURN 0.
-    SymName=CLIP(ExportQ.symbol)
+    SymName=CLIP(ExportQ.symbol)       
     CASE SymName
     OF   'DllGetVersion'            !CB I'm sure we do not want this in a LIB  
     OROF 'DllRegisterServer'        !Only called by RegSrv
@@ -1908,40 +2020,48 @@ OmtIncAllDllX BYTE,STATIC
     OROF 'DllCanUnloadNow'          !OLE calls not you
     OROF 'DllGetActivationFactory'  !COM calls
     OROF 'DllGetClassObject'        !OLE calls
-          IF OmtIncAllDllX THEN RETURN 2-OmtIncAllDllX.
+          IF AddEx:OmtIncAllDllX THEN
+             IF AddEx:TagIncAllDllX THEN SetSearchFlagInExportQ(SearchFlag::Found,1,0).  !1,0=SyncCnt,NoPut
+             RETURN 2-AddEx:OmtIncAllDllX
+          END
           SkipIt = 1 
           CASE MESSAGE('This Export Symbol is normally not statically linked so should not be included '&|
                 '|in your LIB. It is exported by many DLLs and typically is dynamically loaded.'&|
                 '|If you include it you likely will have duplicate errors from the linker.'&|
                 '||     Name: '&SymName, |
-            SymName, , 'Omit Symbol|Omit ALL|Include|Include ALL', 1)
-          OF 1                   ! Name: Omit Symbol  (Default)
-          OF 2 ; OmtIncAllDllX=1 ! Name: Omit ALL
-          OF 3 ; SkipIt=0        ! Name: Include
-          OF 4 ; SkipIt=0 ; OmtIncAllDllX=2 ! Name: Include ALL
+            SymName, , 'Omit Symbol|Omit ALL|Include|Include ALL|Tag All')
+          OF 1                          ! Omit Symbol
+          OF 2 ; AddEx:OmtIncAllDllX=1  ! Omit ALL
+          OF 3 ; SkipIt=0               ! Include
+          OF 4 ; SkipIt=0 ; AddEx:OmtIncAllDllX=2                         ! Include ALL
+          OF 5 ; SkipIt=0 ; AddEx:OmtIncAllDllX=2 ; AddEx:TagIncAllDllX=1 ! Tag ALL
           END !CASE    
          RETURN SkipIt
     END 
     SaveExportQ = ExportQ
+    SaveModule  = ExportQ.Module
     ExportQ.symbol=SymName
     ExportQ.treelevel=2
     GET(ExportQ,ExportQ.symbol,ExportQ.treelevel) 
-    IF ~ERRORCODE() AND OmtIncAllDups THEN
-       SkipIt=2-OmtIncAllDups
-    ELSIF ~ERRORCODE() THEN
-        CASE MESSAGE('Symbol already exists. It usually will cause'&|
-             ' a problem to have duplicate symbol names.'&|
-             '||     Symbol: '& CLIP(ExportQ.symbol) &|
-             '|     Module: '& CLIP(ExportQ.module), |
-             'Duplicate Symbol: ' & SymName, , |
-              'Omit Duplicate|Omit ALL|Include|Include ALL')
-        OF 1 ; SkipIt=1 
-        OF 2 ; SkipIt=1 ; OmtIncAllDups = 1
-      ! OF 3                     ! Name: Include         
-        OF 4 ; OmtIncAllDups = 2 ! Name: Include ALL         
+    UniqueSym=ERRORCODE()
+    IF ~UniqueSym AND AddEx:OmtIncAllDups THEN
+       SkipIt=2-AddEx:OmtIncAllDups
+    ELSIF ~UniqueSym THEN
+        CASE MESSAGE('A Symbol already exists. It can cause Linker errors to have a duplicate symbol name.'&|
+             '||     Symbol: <9>'& CLIP(ExportQ.symbol) &|
+              '|     Module: <9>'& CLIP(ExportQ.module) &|
+             '||     Duplicates: <9>'& CLIP(SaveModule) &|
+             '|','Duplicate Symbol: ' & SymName, , |
+              'Omit Duplicate|Omit ALL|Include Dup|Include ALL|Tag All Dups')
+        OF 1 ; SkipIt=1                             ! Omit Duplicate
+        OF 2 ; SkipIt=1 ; AddEx:OmtIncAllDups = 1   ! Omit All
+      ! OF 3                                        ! Include Duplicate        
+        OF 4 ; AddEx:OmtIncAllDups=2                ! Include ALL         
+        OF 5 ; AddEx:OmtIncAllDups=2 ; AddEx:TagIncAllDups=1 ! Tag ALL         
         END !CASE        
     END
     ExportQ = SaveExportQ
+    IF ~UniqueSym AND AddEx:TagIncAllDups THEN SetSearchFlagInExportQ(SearchFlag::Found,1,0).  !1,0=SyncCnt,NoPut
     RETURN SkipIt
 !=====================================================    
 !Copied from LibMaker. Seems useful when using EXPORT on Declarion to get an EXP file to use instead
@@ -1974,6 +2094,53 @@ i           UNSIGNED,AUTO
    END
    CLOSE(TxtFile)
    RETURN
+!=============================================================
+CopyList2Clip PROCEDURE()      !09/02/20 Copy one of Lists to Clip
+TagNY BYTE,AUTO   !0=All 1=No 2=Yes
+Fmt   BYTE,AUTO
+i     LONG,AUTO
+Tb    EQUATE('<9>') 
+EOL   EQUATE('<13,10>') 
+CB    ANY
+SCnt  LONG 
+LastModule  LIKE(ExportQ.module)
+    CODE
+    IF ?SHEET{PROP:ChoiceFEQ}=?TAB:Filtered AND glo.FoundCount THEN 
+       TagNY=2
+    ELSIF glo.FoundCount THEN 
+        EXECUTE POPUPunder(?,'Copy Tagged|Copy UnTagged|Copy All')
+        TagNY=2 
+        TagNY=1
+        TagNY=0
+        ELSE ; RETURN 
+        END 
+    END              !  1                 2                     3                   4  
+    Fmt=POPUPunder(?,'Symbol Name Only|Symbol -Tab- Module|Module -Tab- Symbol|Module -CR-LF- Symbols')
+    IF ~Fmt THEN RETURN.
+    
+    LOOP i=1 TO RECORDS(ExportQ)
+       GET(ExportQ, i)
+       CASE ABS(ExportQ.treelevel)
+       !OF 1 ExportQ.module
+       OF 2
+            EXECUTE TagNY
+               IF ExportQ.SearchFlag = SearchFlag::Found THEN CYCLE.
+               IF ExportQ.SearchFlag <> SearchFlag::Found THEN CYCLE.
+            END 
+            SCnt += 1
+            IF Fmt=4 AND LastModule<>ExportQ.module THEN 
+               LastModule = ExportQ.module
+               CB=CB & LEFT('-{20} ' & CLIP(ExportQ.module) & ' -{20}'& EOL)
+            END 
+            CASE Fmt 
+            OF 2 ; CB=CB & LEFT(CLIP(ExportQ.symbol) & TB & CLIP(ExportQ.module) & EOL)
+            OF 3 ; CB=CB & LEFT(CLIP(ExportQ.module) & TB & CLIP(ExportQ.symbol) & EOL)  
+            ELSE ; CB=CB & LEFT(CLIP(ExportQ.symbol) & EOL)
+            END
+       END
+    END
+    SETCLIPBOARD(CB)
+    message(SCnt & ' symbols.','Copy List')
 !=============================================================
 !Only works with TEXT,SINGLE.  Best to put call in Event:OpenWindow but I think works after Open Window
 !e.g. SetCueBanner(?Text1,'Cue Banner Text', 1/0)   ! 1=Show Cue with focus, 0=clear cue on focus 
@@ -2073,9 +2240,11 @@ H LONG,AUTO
 !========================================================================================
 ListInit PROCEDURE(SIGNED xFEQ)
    CODE    
-   xFEQ{PROP:LineHeight}  = 1 + xFEQ{PROP:LineHeight} !CB was = 8  !AB
-   xFEQ{proplist:Width,1} = xFEQ{prop:Width} - qOrdColWidth
-
+   xFEQ{PROP:LineHeight}  = 1 + xFEQ{PROP:LineHeight} !CB was = 8  !AB 
+   CASE xFEQ 
+   OF ?Filtered ; xFEQ{proplist:Width,1} = xFEQ{prop:Width} - qOrdColWidth - xFEQ{proplist:Width,2}
+   ELSE         ; xFEQ{proplist:Width,1} = xFEQ{prop:Width} - qOrdColWidth
+   END
    xFEQ{PROP:iconlist, 1} = '~Opened.ico'
    xFEQ{PROP:iconlist, 2} = '~Closed.ico'
    xFEQ{PROP:iconlist, 3} = '~Found.ico'
@@ -2163,6 +2332,13 @@ FA_DIR     EQUATE(10h)
     CN=CLIP(Nm)
     FA=GetFileAttributes(CN)
     RETURN CHOOSE(FA<>Invalid_FA AND BAND(FA,FA_DIR))
+!=========================================================================
+DB   PROCEDURE(STRING xMsg)
+Prfx EQUATE('MGLibMkr: ')
+sz   CSTRING(SIZE(Prfx)+SIZE(xMsg)+3),AUTO
+  CODE 
+  sz=Prfx & CLIP(xMsg) & '<13,10>'
+  OutputDebugString(sz)
 !=========================================================================
 WinSxSPicker    PROCEDURE(*STRING OutFileName)!,BOOL
 RetBool     BOOL

@@ -19,3 +19,6 @@ Cla*.dll
 *.ini
 *.exe
 *.lnk
+_*.bat
+_*.BAT
+
