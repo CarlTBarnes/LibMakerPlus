@@ -966,7 +966,7 @@ OnLocate             ROUTINE
 !------------------------------------------------------
 FileAdded            ROUTINE
   SetCursor(CURSOR:Wait)
-  IF INSTRING('.LIB', UPPER(FileName), 1, 1)
+  IF UPPER(RIGHT(FileName,4))='.LIB' THEN  !01/02/22 was: IF INSTRING('.LIB', UPPER(FileName), 1, 1)
     ReadLib()
   ELSE
     ReadExecutable()
@@ -1570,7 +1570,7 @@ GenerateMap      PROCEDURE(BYTE argRonsFormat) !writes out all info in the expor
 lcl             group
 exq_rec            USHORT
 symbol             like(ExportQ.symbol)!,auto
-instringLoc        ushort
+LenModName         ushort
 CurrModule         like(ExportQ.Module) !no auto
 Assumed_Attributes string(',pascal,raw,dll(1)')
 MaxSymLen   LONG
@@ -1625,13 +1625,12 @@ TreeLevel1 ROUTINE
        Add(ASCIIFile)
     end
     !---------- replace the .DLL or .EXE module extension with .LIB
-    lcl.CurrModule      = WriteExpQ.module
-    lcl.instringLoc     = instring('.DLL',upper(lcl.CurrModule),1,1)
-    if ~lcl.instringLoc
-        lcl.instringLoc = instring('.EXE',upper(lcl.CurrModule),1,1)
-    end
-    if lcl.instringLoc
-       lcl.CurrModule[lcl.instringLoc + 1 : lcl.instringLoc + 3] = 'lib'
+    lcl.CurrModule = WriteExpQ.module
+    lcl.LenModName = len(clip(lcl.CurrModule))   !01/02/22 revised as Instring is wrong incase name is xxxx.dll.lib
+    case upper(sub(lcl.CurrModule,lcl.LenModName-3,4))
+    of   '.DLL'
+    orof '.EXE'
+                lcl.CurrModule[lcl.LenModName - 3 : lcl.LenModName] = '.lib'
     end
     !---------- replace the .DLL or .EXE module extension with .LIB -end
     if argRonsFormat
@@ -1907,7 +1906,7 @@ Pz LONG,DIM(4),STATIC
     CopyQueue(ExportQ,SavExportQ)       !Save the original list so we cn use normal routines to load it
     FREE(ExportQ)
     GLO:IsSubtracting = 1
-    IF INSTRING('.LIB', UPPER(FileName), 1, 1)
+    IF UPPER(RIGHT(FileName,4))='.LIB' THEN  !01/02/22 was: IF INSTRING('.LIB', UPPER(FileName), 1, 1)
        ReadLib()
     ELSE
        ReadExecutable()
